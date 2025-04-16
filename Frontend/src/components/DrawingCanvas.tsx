@@ -1,12 +1,13 @@
-// src/components/DrawingCanvas.tsx
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useImageGeneration } from '../hooks/useImageGeneration';
 
-export const DrawingCanvas = () => {
+export const SketchToImageCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [prompt, setPrompt] = useState('');
-  const [temperature, setTemperature] = useState(0.65);
-  const [guidanceScale, setGuidanceScale] = useState(0.82);
+  const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [promptText, setPromptText] = useState('');
+  const [creativeLevel, setCreativeLevel] = useState(0.65); // renamed from temperature
+  const [adherenceLevel, setAdherenceLevel] = useState(0.82); // renamed from guidanceScale
   
   const {
     isGenerating,
@@ -15,97 +16,188 @@ export const DrawingCanvas = () => {
     error,
     generateImages
   } = useImageGeneration();
-  
-  const handleGenerateClick = async () => {
-    if (!canvasRef.current) return;
+
+  // Initialize canvas on component mount
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     
-    // Convert canvas to blob
-    const blob = await new Promise<Blob | null>(resolve => {
-      canvasRef.current?.toBlob(resolve);
-    });
+    // Configure canvas settings
+    canvas.width = 800;
+    canvas.height = 600;
     
-    if (!blob) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
     
-    // Create a file from the blob
-    const file = new File([blob], 'sketch.png', { type: 'image/png' });
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = 5;
+    context.strokeStyle = '#000000';
     
-    // Generate images
-    await generateImages(file, {
-      prompt,
-      temperature,
-      guidanceScale,
-      numImages: 4
-    });
+    // Set white background
+    context.fillStyle = '#FFFFFF';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    contextRef.current = context;
+  }, []);
+
+  // Drawing handlers
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!contextRef.current) return;
+    
+    const { offsetX, offsetY } = e.nativeEvent;
+    contextRef.current.beginPath();
+    contextRef.current.moveTo(offsetX, offsetY);
+    setIsDrawing(true);
   };
-  
-  // Canvas drawing functionality omitted for brevity
-  
-  return (
-    <div className="drawing-canvas-container">
-      <canvas 
-        ref={canvasRef} 
-        width={800} 
-        height={600}
-        // Drawing event handlers would go here
-      />
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !contextRef.current) return;
+    
+    const { offsetX, offsetY } = e.nativeEvent;
+    contextRef.current.lineTo(offsetX, offsetY);
+    contextRef.current.stroke();
+  };
+
+  const endDrawing = () => {
+    if (!contextRef.current) return;
+    
+    contextRef.current.closePath();
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    if (!contextRef.current || !canvasRef.current) return;
+    
+    contextRef.current.fillStyle = '#FFFFFF';
+    contextRef.current.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+  };
+
+  const handleImageCreation = async () => {
+    if (!canvasRef.current || !promptText.trim()) return;
+    
+    try {
+      // Convert canvas to blob
+      const canvasBlob = await new Promise<Blob | null>((resolve) => {
+        canvasRef.current?.toBlob(resolve, 'image/png');
+      });
       
-      <div className="controls">
-        <input
-          type="text"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe what you want to generate..."
+      if (!canvasBlob) {
+        console.error('Failed to convert canvas to blob');
+        return;
+      }
+      
+      // Create file from blob
+      const sketchFile = new File([canvasBlob], 'sketch.png', { type: 'image/png' });
+      
+      // Generate images using the hook
+      await generateImages(sketchFile, {
+        prompt: promptText,
+        temperature: creativeLevel,
+        guidanceScale: adherenceLevel,
+        numImages: 4
+      });
+    } catch (err) {
+      console.error('Error generating images:', err);
+    }
+  };
+
+  const downloadImage = (imageUrl: string, index: number) => {
+    const link = document.createElement('a');
+    link.href = imageUrl;
+    link.download = `ai-generated-image-${index}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="sketch-to-image-container">
+      <div className="canvas-section">
+        <canvas
+          ref={canvasRef}
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={endDrawing}
+          onMouseLeave={endDrawing}
+          className="drawing-surface"
+        />
+        <div className="canvas-tools">
+          <button onClick={clearCanvas} className="tool-button">
+            Clear Canvas
+          </button>
+        </div>
+      </div>
+      
+      <div className="prompt-controls">
+        <textarea
+          value={promptText}
+          onChange={(e) => setPromptText(e.target.value)}
+          placeholder="Describe what you want your sketch to become..."
+          className="prompt-input"
+          rows={3}
         />
         
-        <div className="parameters">
-          <label>
-            Temperature: {temperature}
+        <div className="slider-controls">
+          <div className="slider-group">
+            <label htmlFor="creative-level">Creativity: {creativeLevel.toFixed(2)}</label>
             <input
+              id="creative-level"
               type="range"
               min="0.1"
               max="1.0"
               step="0.01"
-              value={temperature}
-              onChange={(e) => setTemperature(Number(e.target.value))}
+              value={creativeLevel}
+              onChange={(e) => setCreativeLevel(Number(e.target.value))}
+              className="slider"
             />
-          </label>
+          </div>
           
-          <label>
-            Guidance Scale: {guidanceScale}
+          <div className="slider-group">
+            <label htmlFor="adherence-level">Prompt Adherence: {adherenceLevel.toFixed(2)}</label>
             <input
+              id="adherence-level"
               type="range"
               min="0.1"
               max="2.0"
               step="0.01"
-              value={guidanceScale}
-              onChange={(e) => setGuidanceScale(Number(e.target.value))}
+              value={adherenceLevel}
+              onChange={(e) => setAdherenceLevel(Number(e.target.value))}
+              className="slider"
             />
-          </label>
+          </div>
         </div>
         
-        <button 
-          onClick={handleGenerateClick}
-          disabled={isGenerating || !prompt.trim()}
+        <button
+          onClick={handleImageCreation}
+          disabled={isGenerating || !promptText.trim()}
+          className="generate-button"
         >
-          {isGenerating ? `Generating (${Math.round(progress)}%)` : 'Generate with AI'}
+          {isGenerating ? `Transforming Sketch (${Math.round(progress)}%)` : 'Transform Sketch to Image'}
         </button>
       </div>
       
       {error && (
-        <div className="error-message">
-          Error: {error}
+        <div className="error-notification">
+          <p>Something went wrong: {error}</p>
         </div>
       )}
       
       {generatedImages.length > 0 && (
-        <div className="generated-images">
-          <h3>Generated Images</h3>
-          <div className="image-grid">
+        <div className="results-gallery">
+          <h3>Your AI-Generated Creations</h3>
+          <div className="gallery-grid">
             {generatedImages.map((imageUrl, index) => (
-              <div key={index} className="generated-image">
-                <img src={imageUrl} alt={`Generated image ${index + 1}`} />
-                <button>Save to Collectibles</button>
-                {/* Add Pro mode options for NFT minting */}
+              <div key={index} className="gallery-item">
+                <img src={imageUrl} alt={`AI creation ${index + 1} from sketch`} />
+                <div className="image-actions">
+                  <button onClick={() => downloadImage(imageUrl, index)}>
+                    Download
+                  </button>
+                  <button>
+                    Add to Collection
+                  </button>
+                </div>
               </div>
             ))}
           </div>
