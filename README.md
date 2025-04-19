@@ -2,7 +2,7 @@
 
 SketchXpress is an interactive web application that allows users to create digital art and convert their sketches into NFTs. The platform offers both a kid-friendly mode and a professional mode with advanced features.
 
-![Logo](./public/logo.png)
+![Logo](./frontend/public/logo.png)
 
 ## 🌟 Features
 
